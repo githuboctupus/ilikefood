@@ -1,18 +1,18 @@
 
-import os
+
 import base64
+import os
 import sys
-from dotenv import load_dotenv
+
 import requests
+from dotenv import load_dotenv
+
 
 load_dotenv()
-# ---------------------------------------------------------------------------
-# PASTE YOUR REAL KEYS HERE
-# ---------------------------------------------------------------------------
+
 KROGER_CLIENT_ID = os.environ.get("KROGER_CLIENT_ID")
 KROGER_CLIENT_SECRET = os.environ.get("KROGER_CLIENT_SECRET")
 ORS_API_KEY = os.environ.get("ORS_API_KEY")
-# ---------------------------------------------------------------------------
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
@@ -21,6 +21,10 @@ KROGER_TOKEN_URL = "https://api.kroger.com/v1/connect/oauth2/token"
 KROGER_LOCATIONS_URL = "https://api.kroger.com/v1/locations"
 
 HEADERS_NOMINATIM = {"User-Agent": "student-grocery-app/0.1 (personal project)"}
+HEADERS_OVERPASS = {
+    "User-Agent": "student-grocery-app/0.1 (personal project)",
+    "Accept": "*/*",
+}
 
 SPECIALTY_SHOP_TAGS = ["seafood", "butcher", "deli", "greengrocer", "health_food"]
 
@@ -77,14 +81,16 @@ def find_kroger_stores(zip_code, radius_miles=10, limit=5):
     return stores
 
 
-def find_specialty_markets(lat, lon, radius_m=8000):
+def find_specialty_markets(lat, lon, radius_m=10000):
     """Find fish markets, butchers, etc. nearby using OSM Overpass (free, no key)."""
-    tag_filters = "".join(
-        f'node["shop"="{tag}"](around:{radius_m},{lat},{lon});'
-        for tag in SPECIALTY_SHOP_TAGS
+    shop_regex = "|".join(SPECIALTY_SHOP_TAGS)
+    query = (
+        f'[out:json][timeout:40];'
+        f'node["shop"~"^({shop_regex})$"](around:{radius_m},{lat},{lon});'
+        f'out center;'
     )
-    query = f"[out:json][timeout:25];({tag_filters});out center;"
-    r = requests.post(OVERPASS_URL, data={"data": query}, timeout=30)
+
+    r = requests.post(OVERPASS_URL, data={"data": query}, headers=HEADERS_OVERPASS, timeout=45)
     r.raise_for_status()
 
     markets = []
@@ -96,6 +102,7 @@ def find_specialty_markets(lat, lon, radius_m=8000):
             "lat": el.get("lat"),
             "lon": el.get("lon"),
         })
+    print(markets)
     return markets
 
 
@@ -126,15 +133,17 @@ def get_drive_times(origin, destinations):
 
 
 def check_credentials():
-    placeholders = {
-        "KROGER_CLIENT_ID": KROGER_CLIENT_ID,
-        "KROGER_CLIENT_SECRET": KROGER_CLIENT_SECRET,
-        "ORS_API_KEY": ORS_API_KEY,
-    }
-    still_placeholder = [name for name, val in placeholders.items() if "PASTE_YOUR" in val]
-    if still_placeholder:
-        print("You still need to paste in real values for: " + ", ".join(still_placeholder))
-        print("Edit the top of store_locator.py and replace the placeholder strings.")
+    missing = [
+        name for name, val in [
+            ("KROGER_CLIENT_ID", KROGER_CLIENT_ID),
+            ("KROGER_CLIENT_SECRET", KROGER_CLIENT_SECRET),
+            ("ORS_API_KEY", ORS_API_KEY),
+        ] if not val
+    ]
+    if missing:
+        print("Missing value(s) in your .env file: " + ", ".join(missing))
+        print("Make sure store_locator.py and .env are in the same folder,")
+        print("and that .env has KROGER_CLIENT_ID, KROGER_CLIENT_SECRET, and ORS_API_KEY set.")
         sys.exit(1)
 
 
