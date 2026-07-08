@@ -7,7 +7,8 @@ import sys
 import requests
 from dotenv import load_dotenv
 
-
+# Loads KROGER_CLIENT_ID, KROGER_CLIENT_SECRET, ORS_API_KEY from a local
+# .env file (which is git-ignored and never committed) into the environment.
 load_dotenv()
 
 KROGER_CLIENT_ID = os.environ.get("KROGER_CLIENT_ID")
@@ -15,18 +16,11 @@ KROGER_CLIENT_SECRET = os.environ.get("KROGER_CLIENT_SECRET")
 ORS_API_KEY = os.environ.get("ORS_API_KEY")
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
-OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 ORS_MATRIX_URL = "https://api.openrouteservice.org/v2/matrix/driving-car"
 KROGER_TOKEN_URL = "https://api.kroger.com/v1/connect/oauth2/token"
 KROGER_LOCATIONS_URL = "https://api.kroger.com/v1/locations"
 
 HEADERS_NOMINATIM = {"User-Agent": "student-grocery-app/0.1 (personal project)"}
-HEADERS_OVERPASS = {
-    "User-Agent": "student-grocery-app/0.1 (personal project)",
-    "Accept": "*/*",
-}
-
-SPECIALTY_SHOP_TAGS = ["seafood", "butcher", "deli", "greengrocer", "health_food"]
 
 
 def geocode_zip(zip_code):
@@ -71,6 +65,7 @@ def find_kroger_stores(zip_code, radius_miles=10, limit=5):
         geo = loc.get("geolocation", {})
         addr = loc.get("address", {})
         stores.append({
+            "location_id": loc.get("locationId"),
             "name": loc.get("name", "Kroger store"),
             "address": addr.get("addressLine1"),
             "city": addr.get("city"),
@@ -79,31 +74,6 @@ def find_kroger_stores(zip_code, radius_miles=10, limit=5):
             "type": "kroger",
         })
     return stores
-
-
-def find_specialty_markets(lat, lon, radius_m=10000):
-    """Find fish markets, butchers, etc. nearby using OSM Overpass (free, no key)."""
-    shop_regex = "|".join(SPECIALTY_SHOP_TAGS)
-    query = (
-        f'[out:json][timeout:40];'
-        f'node["shop"~"^({shop_regex})$"](around:{radius_m},{lat},{lon});'
-        f'out center;'
-    )
-
-    r = requests.post(OVERPASS_URL, data={"data": query}, headers=HEADERS_OVERPASS, timeout=45)
-    r.raise_for_status()
-
-    markets = []
-    for el in r.json().get("elements", []):
-        tags = el.get("tags", {})
-        markets.append({
-            "name": tags.get("name", "Unnamed market"),
-            "type": tags.get("shop"),
-            "lat": el.get("lat"),
-            "lon": el.get("lon"),
-        })
-    print(markets)
-    return markets
 
 
 def get_drive_times(origin, destinations):
@@ -154,12 +124,7 @@ def main(zip_code):
     user_lat, user_lon = geocode_zip(zip_code)
 
     print("Searching Kroger-family stores...")
-    kroger_stores = find_kroger_stores(zip_code)
-
-    print("Searching specialty markets (OpenStreetMap)...")
-    specialty_stores = find_specialty_markets(user_lat, user_lon)
-
-    all_stores = [s for s in kroger_stores + specialty_stores if s.get("lat") and s.get("lon")]
+    all_stores = [s for s in find_kroger_stores(zip_code) if s.get("lat") and s.get("lon")]
 
     if not all_stores:
         print("No stores found nearby. Try a larger radius or a different zip code.")
@@ -175,14 +140,14 @@ def main(zip_code):
 
     all_stores.sort(key=lambda s: s["drive_minutes"] if s["drive_minutes"] is not None else 999)
 
-    print(f"{'Store':35} {'Type':12} {'Drive time':12} {'Distance'}")
-    print("-" * 75)
+    print(f"{'Store':30} {'Drive time':12} {'Distance':10} {'Location ID'}")
+    print("-" * 80)
     for s in all_stores:
-        name = (s["name"] or "Unknown")[:34]
-        kind = s["type"] or ""
+        name = (s["name"] or "Unknown")[:29]
         mins = f"{s['drive_minutes']} min" if s["drive_minutes"] is not None else "N/A"
         miles = f"{s['drive_miles']} mi" if s["drive_miles"] is not None else "N/A"
-        print(f"{name:35} {kind:12} {mins:12} {miles}")
+        loc_id = s.get("location_id", "")
+        print(f"{name:30} {mins:12} {miles:10} {loc_id}")
 
 
 if __name__ == "__main__":
