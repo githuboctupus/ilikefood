@@ -192,15 +192,15 @@ h2 { margin:28px 0 12px; font-size:22px; }
 h3 { margin:0 0 8px; font-size:18px; }
 p { line-height:1.45; }
 .sub { opacity:.84; max-width:760px; margin:8px 0 0; }
-.card { background:var(--card); border:1px solid var(--line); border-radius:18px; box-shadow:0 10px 30px rgba(20, 30, 60, .06); padding:18px; margin:14px 0; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:12px; box-shadow:0 8px 20px rgba(20, 30, 60, .05); padding:16px; margin:12px 0; }
 .grid { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:14px; }
 .grid3 { display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap:14px; }
 label { display:block; font-weight:650; margin:0 0 6px; }
-input[type='text'], input[type='number'], select, textarea { width:100%; border:1px solid var(--line); border-radius:12px; padding:11px 12px; background:#fff; font:inherit; }
+input[type='text'], input[type='number'], select, textarea { width:100%; border:1px solid var(--line); border-radius:10px; padding:11px 12px; background:#fff; font:inherit; }
 textarea { min-height:72px; }
 .checks { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:8px; }
-.check { font-weight:500; background:#fafbff; border:1px solid var(--line); border-radius:12px; padding:9px 10px; }
-button, .button { border:0; border-radius:999px; background:var(--accent); color:white; font-weight:750; padding:12px 18px; cursor:pointer; text-decoration:none; display:inline-block; }
+.check { font-weight:500; background:#fafbff; border:1px solid var(--line); border-radius:10px; padding:9px 10px; }
+button, .button { border:0; border-radius:10px; background:var(--accent); color:white; font-weight:750; padding:12px 18px; cursor:pointer; text-decoration:none; display:inline-block; }
 .button.secondary { background:#edf1ff; color:#233a85; }
 .muted { color:var(--muted); }
 .row { display:flex; gap:12px; align-items:center; justify-content:space-between; }
@@ -208,26 +208,35 @@ button, .button { border:0; border-radius:999px; background:var(--accent); color
 .badge { display:inline-flex; align-items:center; border-radius:999px; padding:4px 9px; font-size:12px; font-weight:750; background:var(--soft); color:#223a95; margin:2px 4px 2px 0; }
 .badge.warn { background:#fff2df; color:#8a5200; }
 .badge.danger { background:#ffece8; color:var(--danger); }
-.product-option { border:1px solid var(--line); border-radius:15px; padding:12px; margin:10px 0; display:block; }
+.product-option { border:1px solid var(--line); border-radius:10px; padding:10px; margin:8px 0; display:block; }
 .product-option:has(input:checked) { border-color:var(--accent); background:#fbfcff; box-shadow:0 0 0 3px rgba(53,92,255,.10); }
 .ingredient-summary { cursor:pointer; list-style:none; }
 .ingredient-summary::-webkit-details-marker { display:none; }
+.ingredient-toolbar { position:sticky; top:0; z-index:2; }
+.filter-row { display:flex; gap:10px; align-items:center; }
+.count-pill { white-space:nowrap; border:1px solid var(--line); border-radius:999px; padding:8px 11px; color:var(--muted); font-weight:750; background:#fafbff; }
+.no-ingredient-results[hidden] { display:none; }
 .status { min-width:135px; text-align:right; font-weight:800; color:var(--muted); }
 .status.done { color:#17803d; }
 .status.ignore { color:#8a5200; }
 .status.free { color:#17803d; }
-.search-box { margin:14px 0 6px; }
+.search-box { margin:12px 0; }
 .choice-row { display:flex; align-items:flex-start; gap:10px; }
-.choice-row input { margin-top:4px; }
+.choice-row input { margin-top:4px; flex:0 0 auto; }
 .quick-choice { background:#fbfcff; }
 .hidden-by-search { display:none; }
-.product-title { font-weight:760; }
-.product-meta { display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap:8px; margin-top:10px; }
-.meta { background:#f8f9fc; border-radius:12px; padding:9px; }
-.meta b { display:block; font-size:12px; color:var(--muted); margin-bottom:2px; }
+.option-list { display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:10px; align-items:stretch; }
+.option-list .product-option { margin:0; height:100%; }
+.product-title { display:block; font-weight:760; line-height:1.25; }
+.product-meta { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+.meta { background:#f8f9fc; border-radius:8px; padding:6px 8px; font-size:13px; }
+.meta b { display:inline; font-size:11px; color:var(--muted); margin-right:4px; }
+.size-note { margin-top:8px; font-size:13px; color:var(--muted); }
+.product-id { margin-top:6px; font-size:11px; color:var(--muted); word-break:break-word; }
+.category-line { margin:6px 0 0; font-size:12px; color:var(--muted); }
 .error { background:#fff2f0; color:#8d2b1e; border:1px solid #ffd6cf; padding:12px; border-radius:14px; }
 .total { font-size:30px; font-weight:850; letter-spacing:-.03em; }
-@media (max-width:760px) { .grid, .grid3, .recipe-list, .checks, .product-meta { grid-template-columns:1fr; } .row { display:block; } }
+@media (max-width:760px) { .grid, .grid3, .recipe-list, .checks, .product-meta, .option-list { grid-template-columns:1fr; } .row, .filter-row { display:block; } .count-pill { display:inline-flex; margin-top:8px; } .status { text-align:left; margin-top:8px; } }
 </style>
 """
 
@@ -322,7 +331,7 @@ SEARCH_TEMPLATE = BASE_CSS + """
 PRICE_TEMPLATE = BASE_CSS + """
 <header>
   <h1>Choose products</h1>
-  <p class="sub">Each ingredient is collapsed. Open it to search the product options, auto-pick the recommended/cheapest option, choose a specific product, or ignore the ingredient if you already have it.</p>
+  <p class="sub">Filter the ingredient list, open only the ingredient you need, then search or choose from compact product options.</p>
 </header>
 <main>
   {% if errors %}{% for error in errors %}<div class="error">{{ error }}</div>{% endfor %}{% endif %}
@@ -336,8 +345,16 @@ PRICE_TEMPLATE = BASE_CSS + """
 
   <form method="post" action="{{ url_for('summary') }}">
     <input type="hidden" name="cache_id" value="{{ cache_id }}">
+    <div class="card ingredient-toolbar">
+      <label for="ingredient-filter">Find an ingredient</label>
+      <div class="filter-row">
+        <input id="ingredient-filter" type="text" placeholder="Search by ingredient or aisle..." data-ingredient-filter>
+        <span class="count-pill" id="ingredient-count">{{ ingredients|length }} ingredients</span>
+      </div>
+    </div>
+    <div class="error no-ingredient-results" id="no-ingredient-results" hidden>No ingredients match that search.</div>
     {% for ing in ingredients %}
-      <details class="card ingredient-card" {% if loop.first %}open{% endif %} data-ingredient-index="{{ ing.index }}">
+      <details class="card ingredient-card" {% if loop.first %}open{% endif %} data-ingredient-index="{{ ing.index }}" data-ingredient-text="{{ ing.name }} {{ ing.aisle or '' }}">
         <summary class="ingredient-summary row">
           <div>
             <h2 style="margin:0">{{ ing.name }}</h2>
@@ -358,15 +375,18 @@ PRICE_TEMPLATE = BASE_CSS + """
               <span class="choice-row"><input type="radio" name="choice_{{ ing.index }}" value="IGNORE" checked data-choice-label="ignored"> <span><b>Ignore this ingredient</b><br><span class="muted">Use this if you already have it or do not want to buy it.</span></span></span>
             </label>
           {% else %}
-            <label class="product-option quick-choice">
-              <span class="choice-row"><input type="radio" name="choice_{{ ing.index }}" value="AUTO" checked data-choice-label="auto ✓"> <span><b>Auto-pick best/cheapest option</b><br><span class="muted">Uses the option marked recommended; if there is no special preference, this is usually the cheapest/default option.</span></span></span>
-            </label>
-            <label class="product-option quick-choice">
-              <span class="choice-row"><input type="radio" name="choice_{{ ing.index }}" value="IGNORE" data-choice-label="ignored"> <span><b>Ignore this ingredient</b><br><span class="muted">Check this if you already have it or just do not want to buy it.</span></span></span>
-            </label>
+            <div class="option-list">
+              <label class="product-option quick-choice">
+                <span class="choice-row"><input type="radio" name="choice_{{ ing.index }}" value="AUTO" checked data-choice-label="auto ✓"> <span><b>Auto-pick best/cheapest option</b><br><span class="muted">Uses the option marked recommended, then cheapest/default.</span></span></span>
+              </label>
+              <label class="product-option quick-choice">
+                <span class="choice-row"><input type="radio" name="choice_{{ ing.index }}" value="IGNORE" data-choice-label="ignored"> <span><b>Ignore this ingredient</b><br><span class="muted">Use this if you already have it.</span></span></span>
+              </label>
+            </div>
 
             <input class="search-box" type="text" placeholder="Search {{ ing.name }} options by brand, price, size, category..." data-search-for="{{ ing.index }}">
 
+            <div class="option-list">
             {% for o in ing.options %}
               <label class="product-option searchable-option" data-search-block="{{ ing.index }}" data-search-text="{{ (o.brand or '') ~ ' ' ~ o.description ~ ' ' ~ (o.size or '') ~ ' ' ~ o.price_label ~ ' ' ~ o.package_detail ~ ' ' ~ (o.categories|join(' ')) ~ ' ' ~ (o.tags|join(' ')) }}">
                 <span class="choice-row">
@@ -376,15 +396,16 @@ PRICE_TEMPLATE = BASE_CSS + """
                     <div>{% for tag in o.tags %}<span class="badge">{{ tag }}</span>{% endfor %}</div>
                     <div class="product-meta">
                       <div class="meta"><b>Price</b>{{ o.price_label }}</div>
-                      <div class="meta"><b>Kroger size</b>{{ o.size or 'not listed' }}</div>
-                      <div class="meta"><b>Usable size detail</b>{{ o.package_detail }}</div>
-                      <div class="meta"><b>Product ID</b>{{ o.id }}</div>
+                      <div class="meta"><b>Size</b>{{ o.size or 'not listed' }}</div>
                     </div>
-                    {% if o.categories %}<p class="muted">Categories: {{ o.categories|join(' › ') }}</p>{% endif %}
+                    <div class="size-note">{{ o.package_detail }}</div>
+                    {% if o.categories %}<p class="category-line">{{ o.categories|join(' › ') }}</p>{% endif %}
+                    <div class="product-id">ID {{ o.id }}</div>
                   </span>
                 </span>
               </label>
             {% endfor %}
+            </div>
           {% endif %}
         {% endif %}
       </details>
@@ -409,6 +430,24 @@ function updateStatuses() {
   });
 }
 
+function updateIngredientFilter() {
+  const input = document.querySelector('[data-ingredient-filter]');
+  const count = document.getElementById('ingredient-count');
+  const empty = document.getElementById('no-ingredient-results');
+  const cards = Array.from(document.querySelectorAll('.ingredient-card'));
+  if (!input || !count) return;
+  const q = input.value.trim().toLowerCase();
+  let visible = 0;
+  cards.forEach(card => {
+    const text = (card.dataset.ingredientText || '').toLowerCase();
+    const show = !q || text.includes(q);
+    card.classList.toggle('hidden-by-search', !show);
+    if (show) visible += 1;
+  });
+  count.textContent = visible + ' of ' + cards.length + ' ingredients';
+  if (empty) empty.hidden = visible !== 0;
+}
+
 document.addEventListener('change', event => {
   if (event.target.matches('input[type="radio"]')) updateStatuses();
 });
@@ -423,7 +462,11 @@ document.querySelectorAll('[data-search-for]').forEach(input => {
     });
   });
 });
+
+const ingredientFilter = document.querySelector('[data-ingredient-filter]');
+if (ingredientFilter) ingredientFilter.addEventListener('input', updateIngredientFilter);
 updateStatuses();
+updateIngredientFilter();
 </script>
 """
 
