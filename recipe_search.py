@@ -9,6 +9,24 @@ load_dotenv()
 
 SPOONACULAR_API_KEY = os.environ.get("SPOONACULAR_API_KEY")
 SEARCH_URL = "https://api.spoonacular.com/recipes/complexSearch"
+SUBSTITUTES_URL = "https://api.spoonacular.com/food/ingredients/substitutes"
+
+
+def get_substitutes(ingredient_name):
+    """
+    Returns a list of substitute suggestion strings (e.g. "Use 1 cup
+    applesauce for 1 cup oil"), or None if Spoonacular has no suggestion
+    for this ingredient. These are their own curated suggestions, not
+    something we compute -- treat as a suggestion to consider, not a
+    guaranteed 1-for-1 swap in every recipe.
+    """
+    params = {"apiKey": SPOONACULAR_API_KEY, "ingredientName": ingredient_name}
+    r = requests.get(SUBSTITUTES_URL, params=params, timeout=15)
+    r.raise_for_status()
+    data = r.json()
+    if data.get("status") == "failure" or not data.get("substitutes"):
+        return None
+    return data["substitutes"]
 
 
 def search_recipes(query="", diet=None, intolerances=None, exclude_ingredients=None, number=5):
@@ -69,6 +87,7 @@ def parse_recipe(raw):
         "carbs_g": _get_nutrient(nutrients, "Carbohydrates"),
         "fat_g": _get_nutrient(nutrients, "Fat"),
         "ingredients": ingredients,
+        "instructions": raw.get("instructions") or "No instructions provided -- see source link.",
         "source_url": raw.get("sourceUrl"),
     }
 
@@ -86,8 +105,14 @@ def print_recipes(recipes):
         print(f"  Est. price/serving: ${r['price_per_serving']}")
         print(f"  Calories: {r['calories']} | Protein: {r['protein_g']}g | "
               f"Carbs: {r['carbs_g']}g | Fat: {r['fat_g']}g")
-        print(f"  Ingredients ({len(r['ingredients'])}): " +
-              ", ".join(i["name"] for i in r["ingredients"]))
+        print(f"  Ingredients ({len(r['ingredients'])}):")
+        for i in r["ingredients"]:
+            amount = i["amount"]
+            unit = i["unit"] or ""
+            print(f"    - {amount} {unit} {i['name']}".replace("  ", " "))
+        print(f"  Instructions: {r['instructions']}")
+        if r["source_url"]:
+            print(f"  Source: {r['source_url']}")
 
 
 DIET_OPTIONS = [
@@ -117,7 +142,7 @@ def main():
     dislikes_raw = input("\nAny ingredients you just don't like? (any words, comma separated, or blank): ").strip()
 
     intolerances = [x.strip() for x in intolerances_raw.split(",") if x.strip()] or None
-    dislikes = [x.strip() for x in dislikes_raw.split(",") if x.strip()] or None
+    dislikes = [" ".join(x.strip().split()) for x in dislikes_raw.split(",") if x.strip()] or None
 
     raw_results = search_recipes(
         query=craving,

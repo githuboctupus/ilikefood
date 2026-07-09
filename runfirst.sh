@@ -1,1 +1,1 @@
-pip install requests python-dotenv
+pip install requests python-dotenv flask

@@ -1,4 +1,5 @@
 
+
 import base64
 import os
 
@@ -65,6 +66,51 @@ def search_products(term, location_id, limit=10):
     return options
 
 
+INTOLERANCE_KEYWORDS = {
+    "dairy": ["milk", "cheese", "cream", "butter", "whey", "yogurt", "lactose"],
+    "egg": ["egg"],
+    "gluten": ["wheat", "gluten", "barley", "rye", "malt"],
+    "grain": ["wheat", "rice", "oat", "corn", "barley", "rye"],
+    "peanut": ["peanut"],
+    "seafood": ["fish", "shrimp", "crab", "lobster", "anchovy", "salmon", "tuna"],
+    "sesame": ["sesame", "tahini"],
+    "shellfish": ["shrimp", "crab", "lobster", "clam", "oyster", "scallop", "mussel"],
+    "soy": ["soy"],
+    "sulfite": ["sulfite"],
+    "tree nut": ["almond", "walnut", "pecan", "cashew", "hazelnut", "pistachio", "macadamia"],
+    "wheat": ["wheat"],
+}
+
+
+def filter_unsafe_products(options, intolerances=None, dislikes=None):
+    """
+    Removes any product whose description/brand text matches a banned term
+    from the user's intolerances or dislikes -- e.g. a "hoagie roll" search
+    result that turns out to be topped with sesame seeds even though
+    "sesame" was never in the recipe's ingredient name.
+
+    This is a text-match heuristic against Kroger's product description,
+    NOT a verified allergen database -- for anyone with a serious/medical
+    allergy, always double check the actual product label before buying.
+    """
+    banned_terms = []
+    for intol in (intolerances or []):
+        banned_terms.extend(INTOLERANCE_KEYWORDS.get(intol.lower(), [intol.lower()]))
+    banned_terms.extend([d.lower() for d in (dislikes or [])])
+
+    if not banned_terms:
+        return options, []
+
+    safe, flagged = [], []
+    for o in options:
+        text = f"{o['description']} {o.get('brand') or ''}".lower()
+        if any(term in text for term in banned_terms):
+            flagged.append(o)
+        else:
+            safe.append(o)
+    return safe, flagged
+
+
 PROCESSED_CATEGORY_HINTS = [
     "frozen", "canned", "snack", "candy", "soda", "cookie", "chip",
     "instant", "prepared", "microwave", "boxed",
@@ -128,19 +174,43 @@ def pick_display_options(options, prefer_organic=False, avoid_processed=False):
     return display
 
 
-def price_ingredient(ingredient_name, location_id, prefer_organic=False, avoid_processed=False):
-    options = search_products(ingredient_name, location_id)
-    display = pick_display_options(options, prefer_organic, avoid_processed)
+SKIP_PRICING_TERMS = {"water", "ice", "ice cubes", "ice water", "tap water"}
 
+
+def price_ingredient(ingredient_name, location_id, prefer_organic=False,
+                      avoid_processed=False, intolerances=None, dislikes=None,
+                      interactive=True):
+    """
+    Returns the chosen product dict (with price, size, etc.) or None if
+    skipped/unavailable -- not just a bare price -- so the caller can also
+    use the package size for serving/leftover math.
+    """
     print(f"\n{ingredient_name}:")
-    if not display:
-        print("  No matching products found at this store.")
+
+    if ingredient_name.strip().lower() in SKIP_PRICING_TERMS:
+        print("  Assumed free (tap water) -- not priced.")
+        return {"id": None, "description": ingredient_name, "price": 0.0, "size": None}
+
+    options = search_products(ingredient_name, location_id)
+    if not options:
+        print("  Not found at this store.")
         return None
 
-    best_id = display[0]["id"]
-    cheapest_id = min(options, key=lambda o: o["price"])["id"]
+    safe_options, flagged = filter_unsafe_products(options, intolerances, dislikes)
+    if not safe_options:
+        excluded_names = ", ".join(o["description"] for o in flagged[:3])
+        print(f"  Every match at this store conflicts with your intolerances/dislikes "
+              f"(e.g. {excluded_names}). Not priced.")
+        return None
 
-    for o in display:
+    display = pick_display_options(safe_options, prefer_organic, avoid_processed)
+    if flagged:
+        print(f"  (Note: {len(flagged)} match(es) hidden for containing an excluded ingredient.)")
+
+    best_id = display[0]["id"]
+    cheapest_id = min(safe_options, key=lambda o: o["price"])["id"]
+
+    for i, o in enumerate(display, start=1):
         tags = []
         if o["id"] == best_id and (prefer_organic or avoid_processed):
             tags.append("BEST MATCH")
@@ -151,29 +221,54 @@ def price_ingredient(ingredient_name, location_id, prefer_organic=False, avoid_p
         tag_str = "/".join(tags) if tags else "option"
         size = f" ({o['size']})" if o.get("size") else ""
         brand = f"{o['brand']} " if o.get("brand") else ""
-        print(f"  [{tag_str:16}] {brand}{o['description']}{size} -- ${o['price']:.2f}")
+        print(f"  {i}. [{tag_str:16}] {brand}{o['description']}{size} -- ${o['price']:.2f}")
 
-    # Use the best-match option's price for the running total, not always cheapest --
-    # if the user asked for organic/less-processed, the total should reflect that choice.
-    return display[0]["price"]
+    if not interactive:
+        return display[0]
+
+    choice = input(f"  Pick 1-{len(display)} (blank = best match, 's' = skip this ingredient): ").strip().lower()
+    if choice == "s":
+        return "SKIP"
+    if not choice:
+        return display[0]
+    try:
+        return display[int(choice) - 1]
+    except (ValueError, IndexError):
+        print("  Invalid choice -- using best match.")
+        return display[0]
 
 
-def price_recipe(ingredient_names, location_id, prefer_organic=False, avoid_processed=False):
+def price_recipe(ingredient_names, location_id, prefer_organic=False,
+                  avoid_processed=False, intolerances=None, dislikes=None,
+                  interactive=True):
+    """
+    Returns (total, missing, skipped, chosen_products) where chosen_products
+    is a dict of {ingredient_name: product_dict} for everything actually priced --
+    needed later for the servings/leftover math, since that needs package size.
+    """
     total = 0.0
     missing = []
+    skipped = []
+    chosen_products = {}
 
     for name in ingredient_names:
-        price = price_ingredient(name, location_id, prefer_organic, avoid_processed)
-        if price is None:
+        result = price_ingredient(name, location_id, prefer_organic, avoid_processed,
+                                   intolerances, dislikes, interactive)
+        if result is None:
             missing.append(name)
+        elif result == "SKIP":
+            skipped.append(name)
         else:
-            total += price
+            total += result["price"]
+            chosen_products[name] = result
 
     print(f"\nEstimated total: ${total:.2f}")
     if missing:
-        print(f"Not found at this store: {', '.join(missing)}")
+        print(f"Could not be priced: {', '.join(missing)}")
+    if skipped:
+        print(f"Skipped by choice: {', '.join(skipped)}")
 
-    return total, missing
+    return total, missing, skipped, chosen_products
 
 
 if __name__ == "__main__":
