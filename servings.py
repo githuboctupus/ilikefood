@@ -1,4 +1,20 @@
-#servings/leftover match
+"""
+Serving/leftover math.
+
+Given a recipe's per-batch ingredient amounts and the real package sizes
+you'd actually buy at the store, this figures out:
+  - how many times you can make the recipe from what you bought
+  - what's left over per ingredient
+  - the purchase plan (how many packages of each) that minimizes leftover
+    waste while landing your total servings inside a range you choose
+
+IMPORTANT HONEST LIMITATION: converting between volume (cups, tbsp) and
+weight (lb, oz) depends on the specific ingredient's density -- a cup of
+flour and a cup of honey do not weigh the same. This only has confident
+numbers for a short list of common staples below. For anything else, if
+the recipe's unit and the store's unit aren't both weight or both count,
+it says the conversion isn't available rather than guessing.
+"""
 
 import re
 
@@ -62,6 +78,75 @@ def parse_package_size(size_str):
     if not match:
         return None, None
     return float(match.group(1)), match.group(2).strip().lower()
+
+
+def per_serving_amount(recipe_amount, servings_per_batch=1):
+    """How much of this ingredient does ONE serving need. Defaults to
+    treating one full run of the recipe as one serving (servings_per_batch=1),
+    per the current app assumption -- override only if you later want to
+    account for a recipe's own stated serving count."""
+    if not recipe_amount or not servings_per_batch:
+        return None
+    return recipe_amount / servings_per_batch
+
+
+def servings_from_one_package(recipe_amount, recipe_unit, ingredient_name,
+                               package_amount, package_unit, servings_per_batch=1):
+    """
+    Returns (max_servings, leftover, convertible: bool).
+    servings_per_batch defaults to 1 -- one full run of the recipe counts
+    as one serving, per the current app assumption. Pass a different value
+    only if a recipe's own serving count should be factored in instead.
+    """
+    per_serving = per_serving_amount(recipe_amount, servings_per_batch)
+    if per_serving is None:
+        return None, None, False
+
+    r_unit = _normalize_unit(recipe_unit)
+    p_unit = _normalize_unit(package_unit)
+
+    if r_unit in COUNT_UNITS and p_unit in COUNT_UNITS:
+        total_available = package_amount
+        max_servings = int(total_available // per_serving) if per_serving > 0 else 0
+        leftover = total_available - (max_servings * per_serving)
+        return max_servings, leftover, True
+
+    per_serving_g = to_grams(per_serving, recipe_unit, ingredient_name)
+    package_g = to_grams(package_amount, package_unit, ingredient_name)
+    if per_serving_g is None or package_g is None or per_serving_g <= 0:
+        return None, None, False
+
+    max_servings = int(package_g // per_serving_g)
+    leftover_g = package_g - (max_servings * per_serving_g)
+    return max_servings, leftover_g, True
+
+
+def unit_type(unit):
+    """Classifies a unit as 'weight', 'volume', or 'count' -- used to check
+    whether a recipe's unit and a candidate product's unit are even the
+    same TYPE of measurement before trusting a match."""
+    u = _normalize_unit(unit)
+    if u in WEIGHT_TO_GRAMS:
+        return "weight"
+    if u in VOLUME_TO_ML:
+        return "volume"
+    if u in COUNT_UNITS:
+        return "count"
+    return "unknown"
+
+
+def units_are_compatible(recipe_unit, package_unit):
+    """
+    True if the two units are the same measurement type (both weight,
+    both volume, both count) OR if either is missing/unknown (in which
+    case we don't have enough info to penalize -- absence of evidence
+    isn't evidence of a mismatch).
+    """
+    r_type = unit_type(recipe_unit)
+    p_type = unit_type(package_unit)
+    if r_type == "unknown" or p_type == "unknown":
+        return True
+    return r_type == p_type
 
 
 def batches_from_one_ingredient(recipe_amount, recipe_unit, ingredient_name,

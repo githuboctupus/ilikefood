@@ -1,11 +1,28 @@
+"""
+Get real Kroger prices for a recipe's ingredients at a specific store.
 
+For each ingredient, shows the cheapest matching product plus up to two
+other options (in Kroger's own default search-result order, which is
+their relevance ranking -- the closest thing to "popularity" they expose),
+so you can eyeball whether the automatic match actually makes sense.
+
+SETUP: uses the same .env file as before -- needs KROGER_CLIENT_ID and
+KROGER_CLIENT_SECRET (already set up from store_locator.py).
+
+Run it:
+    python3 pricing.py
+
+You'll need a store's Location ID -- run store_locator.py first and copy
+the "Location ID" column value for the store you want to price against.
+"""
 
 import base64
 import os
-import re
 
 import requests
 from dotenv import load_dotenv
+
+import servings  # reuse unit-type classification, not a second copy
 
 load_dotenv()
 
@@ -14,21 +31,6 @@ KROGER_CLIENT_SECRET = os.environ.get("KROGER_CLIENT_SECRET")
 
 KROGER_TOKEN_URL = "https://api.kroger.com/v1/connect/oauth2/token"
 KROGER_PRODUCTS_URL = "https://api.kroger.com/v1/products"
-
-STOP_WORDS = {
-    "and", "or", "of", "the", "fresh", "raw", "ground", "chopped", "diced",
-    "sliced", "small", "large", "medium", "whole", "to", "taste",
-}
-LOWER_CONFIDENCE_HINTS = {
-    "cracker", "crackers", "chip", "chips", "snack", "snacks", "cookie", "cookies",
-    "bar", "bars", "cereal", "mix", "kit", "meal", "dinner", "lunch", "sauce",
-    "marinade", "rub", "seasoning blend", "blend", "dressing", "dip", "spread",
-    "prepared", "frozen", "breaded", "stuffed",
-}
-BASIC_CATEGORY_HINTS = {
-    "produce", "meat", "seafood", "dairy", "bakery", "deli", "eggs", "pantry",
-    "spices", "seasoning", "baking", "canned", "condiments",
-}
 
 
 def get_kroger_token():
@@ -47,8 +49,8 @@ def get_kroger_token():
 def search_products(term, location_id, limit=10):
     """
     Search Kroger's catalog for a term at a specific store.
-    Returns options in Kroger's own result order, plus a search rank that can
-    be combined with local relevance scoring.
+    Returns options in Kroger's own result order (their relevance ranking
+    for that search term -- treated here as the "recommended" order).
     """
     token = get_kroger_token()
     headers = {"Authorization": f"Bearer {token}"}
@@ -61,7 +63,7 @@ def search_products(term, location_id, limit=10):
     r.raise_for_status()
 
     options = []
-    for rank, item in enumerate(r.json().get("data", [])):
+    for item in r.json().get("data", []):
         items = item.get("items", [])
         price_info = items[0].get("price") if items else None
         price = None
@@ -78,111 +80,8 @@ def search_products(term, location_id, limit=10):
             "categories": item.get("categories", []),
             "organic_claim": item.get("organicClaimName"),  # real field, not a guess
             "non_gmo": item.get("nonGmo", False),
-            "search_rank": rank,
         })
     return options
-
-
-def product_text(product):
-    return f"{product.get('description') or ''} {product.get('brand') or ''}".lower()
-
-
-def normalize_words(value):
-    words = re.findall(r"[a-z0-9]+", (value or "").lower().replace("&", " and "))
-    return [word for word in words if word not in STOP_WORDS]
-
-
-def category_text(product):
-    return " ".join(product.get("categories", [])).lower()
-
-
-def ingredient_category_hint(ingredient_name, aisle=None):
-    text = f"{ingredient_name or ''} {aisle or ''}".lower()
-    if any(word in text for word in ["salt", "pepper", "spice", "seasoning", "seed", "sesame"]):
-        return ["spices", "seasoning", "baking", "pantry"]
-    if any(word in text for word in ["lettuce", "tomato", "onion", "garlic", "carrot", "cilantro", "parsley", "fruit", "vegetable"]):
-        return ["produce"]
-    if any(word in text for word in ["chicken", "beef", "pork", "turkey", "meat"]):
-        return ["meat"]
-    if any(word in text for word in ["milk", "cheese", "cream", "yogurt", "butter"]):
-        return ["dairy"]
-    return []
-
-
-def score_product_relevance(product, ingredient_name, aisle=None, prefer_organic=False, avoid_processed=False):
-    """
-    Score how likely a Kroger result is to be the ingredient itself.
-    This does not hide products; it only sorts strong matches before broad or
-    prepared-food matches so the UI stays useful even when Kroger is noisy.
-    """
-    text = product_text(product)
-    cats = category_text(product)
-    ingredient = (ingredient_name or "").lower().replace("&", " and ")
-    words = normalize_words(ingredient_name)
-    score = max(0, 16 - int(product.get("search_rank") or 0))
-    reasons = []
-
-    if ingredient and ingredient in text:
-        score += 35
-        reasons.append("name contains ingredient")
-    if words:
-        matched = [word for word in words if word in text]
-        score += 12 * len(matched)
-        if len(matched) == len(words):
-            score += 18
-            reasons.append("all ingredient words match")
-        elif matched:
-            reasons.append("partial ingredient match")
-        first_word = words[0]
-        product_words = normalize_words(product.get("description"))
-        if product_words and product_words[0] == first_word:
-            score += 12
-            reasons.append("starts with ingredient")
-
-    hints = ingredient_category_hint(ingredient_name, aisle)
-    if hints and any(hint in cats for hint in hints):
-        score += 18
-        reasons.append("category fits ingredient")
-    elif any(hint in cats for hint in BASIC_CATEGORY_HINTS):
-        score += 5
-
-    lowered = [hint for hint in LOWER_CONFIDENCE_HINTS if hint in text or hint in cats]
-    if lowered:
-        score -= 18
-        reasons.append("looks like prepared or snack item")
-
-    if prefer_organic:
-        if product.get("organic_claim"):
-            score += 8
-            reasons.append("organic")
-        elif "organic" in text:
-            score += 3
-    if avoid_processed and lowered:
-        score -= 8
-
-    if not reasons:
-        reasons.append("Kroger search result")
-
-    if score >= 55:
-        confidence = "high"
-    elif score >= 30:
-        confidence = "medium"
-    else:
-        confidence = "lower"
-
-    enriched = dict(product)
-    enriched["relevance_score"] = score
-    enriched["match_confidence"] = confidence
-    enriched["match_reasons"] = reasons[:3]
-    return enriched
-
-
-def rank_product_options(options, ingredient_name, aisle=None, prefer_organic=False, avoid_processed=False):
-    ranked = [
-        score_product_relevance(o, ingredient_name, aisle, prefer_organic, avoid_processed)
-        for o in options
-    ]
-    return sorted(ranked, key=lambda o: (o.get("relevance_score", 0), -float(o.get("price") or 0)), reverse=True)
 
 
 INTOLERANCE_KEYWORDS = {
@@ -222,7 +121,7 @@ def filter_unsafe_products(options, intolerances=None, dislikes=None):
 
     safe, flagged = [], []
     for o in options:
-        text = product_text(o)
+        text = f"{o['description']} {o.get('brand') or ''}".lower()
         if any(term in text for term in banned_terms):
             flagged.append(o)
         else:
@@ -239,21 +138,23 @@ WHOLE_CATEGORY_HINTS = [
 ]
 
 
-def score_product(product, prefer_organic=False, avoid_processed=False):
+def score_product(product, prefer_organic=False, avoid_processed=False, recipe_unit=None):
     """
-    Higher score = better match for the user's stated preferences.
-    This doesn't touch price at all -- it's purely "does this match what
-    they said they want," so it can be combined with price separately.
+    Higher score = better match. Now also penalizes a product whose
+    package unit is a DIFFERENT TYPE of measurement than what the recipe
+    needs (e.g. recipe needs "2 oz garlic paste" by weight, but a product
+    is sold "3 cloves" by count) -- a strong signal the match is wrong,
+    not just a worse price/organic option.
     """
     score = 0
-    text = product_text(product)
-    categories_text = category_text(product)
+    text = f"{product['description']} {product.get('brand') or ''}".lower()
+    categories_text = " ".join(product.get("categories", [])).lower()
 
     if prefer_organic:
         if product.get("organic_claim"):
-            score += 15  # real, label-verified claim -- strong signal
+            score += 15
         elif "organic" in text:
-            score += 5   # only shows up in the name/brand text -- weaker signal
+            score += 5
 
     if avoid_processed:
         if any(hint in categories_text for hint in WHOLE_CATEGORY_HINTS):
@@ -261,21 +162,36 @@ def score_product(product, prefer_organic=False, avoid_processed=False):
         if any(hint in categories_text for hint in PROCESSED_CATEGORY_HINTS):
             score -= 5
 
+    if recipe_unit:
+        pkg_amount, pkg_unit = None, None
+        size = product.get("size")
+        if size:
+            import re
+            m = re.match(r"([\d.]+)\s*([a-zA-Z ]+)", size.strip())
+            if m:
+                pkg_unit = m.group(2).strip().lower()
+        if pkg_unit and not servings.units_are_compatible(recipe_unit, pkg_unit):
+            score -= 8  # bigger penalty than organic/processed preferences --
+                        # a unit-type mismatch usually means the wrong product
+
     return score
 
 
-def pick_display_options(options, prefer_organic=False, avoid_processed=False):
+def pick_display_options(options, prefer_organic=False, avoid_processed=False, recipe_unit=None):
     """
-    Returns up to 3 emphasized options:
-      - the highest-ranked/best match
-      - the cheapest option (always shown, even if it's not the best match)
-      - one more high-ranked option for variety
+    Returns up to 3 options to show:
+      - the best match for stated preferences (organic / avoid-processed / unit match)
+      - the cheapest option (always shown, even if it's not the best match,
+        so you can see the tradeoff)
+      - one more from Kroger's default order, for variety
+    If no preferences are set, "best match" and "cheapest" collapse to the
+    same thing, same as before.
     """
     if not options:
         return []
 
-    scored = [(o, score_product(o, prefer_organic, avoid_processed)) for o in options]
-    best_match = max(scored, key=lambda pair: (pair[0].get("relevance_score", 0), pair[1], -pair[0]["price"]))[0]
+    scored = [(o, score_product(o, prefer_organic, avoid_processed, recipe_unit)) for o in options]
+    best_match = max(scored, key=lambda pair: (pair[1], -pair[0]["price"]))[0]
     cheapest = min(options, key=lambda o: o["price"])
 
     display = [best_match]
@@ -295,7 +211,7 @@ SKIP_PRICING_TERMS = {"water", "ice", "ice cubes", "ice water", "tap water"}
 
 def price_ingredient(ingredient_name, location_id, prefer_organic=False,
                       avoid_processed=False, intolerances=None, dislikes=None,
-                      interactive=True):
+                      interactive=True, recipe_unit=None):
     """
     Returns the chosen product dict (with price, size, etc.) or None if
     skipped/unavailable -- not just a bare price -- so the caller can also
@@ -319,8 +235,7 @@ def price_ingredient(ingredient_name, location_id, prefer_organic=False,
               f"(e.g. {excluded_names}). Not priced.")
         return None
 
-    safe_options = rank_product_options(safe_options, ingredient_name, prefer_organic=prefer_organic, avoid_processed=avoid_processed)
-    display = pick_display_options(safe_options, prefer_organic, avoid_processed)
+    display = pick_display_options(safe_options, prefer_organic, avoid_processed, recipe_unit)
     if flagged:
         print(f"  (Note: {len(flagged)} match(es) hidden for containing an excluded ingredient.)")
 
@@ -329,7 +244,7 @@ def price_ingredient(ingredient_name, location_id, prefer_organic=False,
 
     for i, o in enumerate(display, start=1):
         tags = []
-        if o["id"] == best_id:
+        if o["id"] == best_id and (prefer_organic or avoid_processed):
             tags.append("BEST MATCH")
         if o["id"] == cheapest_id:
             tags.append("CHEAPEST")
